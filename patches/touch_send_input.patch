@@ -145,8 +145,8 @@ index ef1020d..828e107 100644
  
 diff --git a/content/browser/renderer_host/input/touch_emulator.h b/content/browser/renderer_host/input/touch_emulator.h
 index 48ba8b5..9dcb94a 100644
---- a/Users/work/Development/libchromiumcontent/src/content/browser/renderer_host/input/touch_emulator.h
-+++ b/Users/work/Development/promethean/libchromiumcontent/src/content/browser/renderer_host/input/touch_emulator.h
+--- a/content/browser/renderer_host/input/touch_emulator.h
++++ b/content/browser/renderer_host/input/touch_emulator.h
 @@ -37,10 +37,10 @@ class CONTENT_EXPORT TouchEmulator : public ui::GestureProviderClient {
    // Returns |true| if the event was consumed. Consumed event should not
    // propagate any further.
@@ -174,8 +174,8 @@ index 48ba8b5..9dcb94a 100644
    
 diff --git a/content/browser/renderer_host/input/touch_emulator.cc b/content/browser/renderer_host/input/touch_emulator.cc
 index f09716a..6acce88 100644
---- a/Users/work/Development/libchromiumcontent/src/content/browser/renderer_host/input/touch_emulator.cc
-+++ b/Users/work/Development/promethean/libchromiumcontent/src/content/browser/renderer_host/input/touch_emulator.cc
+--- a/content/browser/renderer_host/input/touch_emulator.cc
++++ b/content/browser/renderer_host/input/touch_emulator.cc
 @@ -47,7 +47,7 @@ int ModifiersWithoutMouseButtons(const WebInputEvent& event) {
  
  // Time between two consecutive mouse moves, during which second mouse move
