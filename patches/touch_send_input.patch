@@ -1,0 +1,559 @@
+diff --git a/content/browser/renderer_host/render_widget_host_impl.h b/content/browser/renderer_host/render_widget_host_impl.h
+index d75edd3..6aa1425 100644
+--- a/content/browser/renderer_host/render_widget_host_impl.h
++++ b/content/browser/renderer_host/render_widget_host_impl.h
+@@ -331,7 +331,8 @@ class CONTENT_EXPORT RenderWidgetHostImpl : public RenderWidgetHost,
+   void ForwardEmulatedGestureEvent(
+       const blink::WebGestureEvent& gesture_event) override;
+   void ForwardEmulatedTouchEvent(
+-      const blink::WebTouchEvent& touch_event) override;
++      const blink::WebTouchEvent& touch_event, 
++      bool send_input) override;
+   void SetCursor(const WebCursor& cursor) override;
+   void ShowContextMenuAtPoint(const gfx::Point& point) override;
+ 
+diff --git a/content/browser/renderer_host/render_widget_host_impl.cc b/content/browser/renderer_host/render_widget_host_impl.cc
+index ef1020d..828e107 100644
+--- a/content/browser/renderer_host/render_widget_host_impl.cc
++++ b/content/browser/renderer_host/render_widget_host_impl.cc
+@@ -246,8 +246,6 @@ RenderWidgetHostImpl::RenderWidgetHostImpl(RenderWidgetHostDelegate* delegate,
+   input_router_.reset(new InputRouterImpl(
+       process_, this, this, routing_id_, GetInputRouterConfigForPlatform()));
+ 
+-  touch_emulator_.reset();
+-
+   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+           switches::kDisableHangMonitor)) {
+     hang_monitor_timeout_.reset(new TimeoutMonitor(
+@@ -260,6 +258,8 @@ RenderWidgetHostImpl::RenderWidgetHostImpl(RenderWidgetHostDelegate* delegate,
+                  weak_factory_.GetWeakPtr())));
+ 
+   delegate_->RenderWidgetCreated(this);
++
++  SetTouchEventEmulationEnabled(true, ui::GestureProviderConfigType::GENERIC_DESKTOP);
+ }
+ 
+ RenderWidgetHostImpl::~RenderWidgetHostImpl() {
+@@ -694,8 +694,8 @@ void RenderWidgetHostImpl::Blur() {
+   if (IsMouseLocked())
+     view_->UnlockMouse();
+ 
+-  if (touch_emulator_)
+-    touch_emulator_->CancelTouch();
++  // if (touch_emulator_)
++  //   touch_emulator_->CancelTouch();
+ 
+   Send(new InputMsg_SetFocus(routing_id_, false));
+ 
+@@ -706,8 +706,8 @@ void RenderWidgetHostImpl::Blur() {
+ }
+ 
+ void RenderWidgetHostImpl::LostCapture() {
+-  if (touch_emulator_)
+-    touch_emulator_->CancelTouch();
++  // if (touch_emulator_)
++  //   touch_emulator_->CancelTouch();
+ 
+   Send(new InputMsg_MouseCaptureLost(routing_id_));
+ 
+@@ -956,8 +956,8 @@ void RenderWidgetHostImpl::ForwardMouseEventWithLatencyInfo(
+   if (ShouldDropInputEvents())
+     return;
+ 
+-  if (touch_emulator_ && touch_emulator_->HandleMouseEvent(mouse_event))
+-    return;
++  // if (touch_emulator_ && touch_emulator_->HandleMouseEvent(mouse_event))
++  //   return;
+ 
+   MouseEventWithLatencyInfo mouse_with_latency(mouse_event, ui_latency);
+   DispatchInputEventWithLatencyInfo(mouse_event, &mouse_with_latency.latency);
+@@ -978,8 +978,8 @@ void RenderWidgetHostImpl::ForwardWheelEventWithLatencyInfo(
+   if (ShouldDropInputEvents())
+     return;
+ 
+-  if (touch_emulator_ && touch_emulator_->HandleMouseWheelEvent(wheel_event))
+-    return;
++  // if (touch_emulator_ && touch_emulator_->HandleMouseWheelEvent(wheel_event))
++  //   return;
+ 
+   MouseWheelEventWithLatencyInfo wheel_with_latency(wheel_event, ui_latency);
+   DispatchInputEventWithLatencyInfo(wheel_event, &wheel_with_latency.latency);
+@@ -1049,10 +1049,18 @@ void RenderWidgetHostImpl::ForwardGestureEventWithLatencyInfo(
+ }
+ 
+ void RenderWidgetHostImpl::ForwardEmulatedTouchEvent(
+-      const blink::WebTouchEvent& touch_event) {
++      const blink::WebTouchEvent& touch_event, 
++      bool send_input) {
+   TRACE_EVENT0("input", "RenderWidgetHostImpl::ForwardEmulatedTouchEvent");
+ 
+   TouchEventWithLatencyInfo touch_with_latency(touch_event);
++
++  if (send_input &&
++      touch_emulator_) {
++    touch_emulator_->HandleTouchEvent(touch_with_latency.event);
++    return;
++  }
++
+   DispatchInputEventWithLatencyInfo(touch_event, &touch_with_latency.latency);
+   input_router_->SendTouchEvent(touch_with_latency);
+ }
+@@ -1066,14 +1074,14 @@ void RenderWidgetHostImpl::ForwardTouchEventWithLatencyInfo(
+   // ignored if appropriate in FilterInputEvent().
+ 
+   TouchEventWithLatencyInfo touch_with_latency(touch_event, ui_latency);
+-  if (touch_emulator_ &&
+-      touch_emulator_->HandleTouchEvent(touch_with_latency.event)) {
+-    if (view_) {
+-      view_->ProcessAckedTouchEvent(
+-          touch_with_latency, INPUT_EVENT_ACK_STATE_CONSUMED);
+-    }
+-    return;
+-  }
++  // if (touch_emulator_ &&
++  //     touch_emulator_->HandleTouchEvent(touch_with_latency.event)) {
++  //   if (view_) {
++  //     view_->ProcessAckedTouchEvent(
++  //         touch_with_latency, INPUT_EVENT_ACK_STATE_CONSUMED);
++  //   }
++  //   return;
++  // }
+ 
+   DispatchInputEventWithLatencyInfo(touch_event, &touch_with_latency.latency);
+   input_router_->SendTouchEvent(touch_with_latency);
+@@ -1139,8 +1147,8 @@ void RenderWidgetHostImpl::ForwardKeyboardEvent(
+       suppress_next_char_events_ = false;
+   }
+ 
+-  if (touch_emulator_ && touch_emulator_->HandleKeyboardEvent(key_event))
+-    return;
++  // if (touch_emulator_ && touch_emulator_->HandleKeyboardEvent(key_event))
++  //   return;
+ 
+   NativeWebKeyboardEventWithLatencyInfo key_event_with_latency(key_event);
+   key_event_with_latency.event.isBrowserShortcut = is_shortcut;
+@@ -1724,8 +1732,8 @@ void RenderWidgetHostImpl::SetTouchEventEmulationEnabled(
+     }
+     touch_emulator_->Enable(config_type);
+   } else {
+-    if (touch_emulator_)
+-      touch_emulator_->Disable();
++    // if (touch_emulator_)
++    //   touch_emulator_->Disable();
+   }
+ }
+ 
+diff --git a/content/browser/renderer_host/input/touch_emulator.h b/content/browser/renderer_host/input/touch_emulator.h
+index 48ba8b5..9dcb94a 100644
+--- a/Users/work/Development/libchromiumcontent/src/content/browser/renderer_host/input/touch_emulator.h
++++ b/Users/work/Development/promethean/libchromiumcontent/src/content/browser/renderer_host/input/touch_emulator.h
+@@ -37,10 +37,10 @@ class CONTENT_EXPORT TouchEmulator : public ui::GestureProviderClient {
+   // Returns |true| if the event was consumed. Consumed event should not
+   // propagate any further.
+   // TODO(dgozman): maybe pass latency info together with events.
+-  bool HandleMouseEvent(const blink::WebMouseEvent& event);
+-  bool HandleMouseWheelEvent(const blink::WebMouseWheelEvent& event);
+-  bool HandleKeyboardEvent(const blink::WebKeyboardEvent& event);
+-  bool HandleTouchEvent(const blink::WebTouchEvent& event);
++  // bool HandleMouseEvent(const blink::WebMouseEvent& event);
++  // bool HandleMouseWheelEvent(const blink::WebMouseWheelEvent& event);
++  // bool HandleKeyboardEvent(const blink::WebKeyboardEvent& event);
++  void HandleTouchEvent(const blink::WebTouchEvent& event);
+ 
+   // Returns |true| if the event ack was consumed. Consumed ack should not
+   // propagate any further.
+@@ -103,7 +103,7 @@ class CONTENT_EXPORT TouchEmulator : public ui::GestureProviderClient {
+ 
+   blink::WebTouchEvent touch_event_;
+   int emulated_stream_active_sequence_count_;
+-  int native_stream_active_sequence_count_;
++  // int native_stream_active_sequence_count_;
+ 
+   // Whether we should suppress next fling cancel. This may happen when we
+   // did not send fling start in pinch mode.
+   
+diff --git a/content/browser/renderer_host/input/touch_emulator.cc b/content/browser/renderer_host/input/touch_emulator.cc
+index f09716a..6acce88 100644
+--- a/Users/work/Development/libchromiumcontent/src/content/browser/renderer_host/input/touch_emulator.cc
++++ b/Users/work/Development/promethean/libchromiumcontent/src/content/browser/renderer_host/input/touch_emulator.cc
+@@ -47,7 +47,7 @@ int ModifiersWithoutMouseButtons(const WebInputEvent& event) {
+ 
+ // Time between two consecutive mouse moves, during which second mouse move
+ // is not converted to touch.
+-const double kMouseMoveDropIntervalSeconds = 5.f / 1000;
++// const double kMouseMoveDropIntervalSeconds = 5.f / 1000;
+ 
+ } // namespace
+ 
+@@ -57,8 +57,8 @@ TouchEmulator::TouchEmulator(TouchEmulatorClient* client,
+       gesture_provider_config_type_(
+           ui::GestureProviderConfigType::CURRENT_PLATFORM),
+       double_tap_enabled_(true),
+-      emulated_stream_active_sequence_count_(0),
+-      native_stream_active_sequence_count_(0) {
++      emulated_stream_active_sequence_count_(0) {//,
++      // native_stream_active_sequence_count_(0) {
+   DCHECK(client_);
+   ResetState();
+ 
+@@ -103,7 +103,7 @@ void TouchEmulator::Enable(ui::GestureProviderConfigType config_type) {
+     gesture_provider_->SetMultiTouchZoomSupportEnabled(false);
+     gesture_provider_->SetDoubleTapSupportForPageEnabled(double_tap_enabled_);
+   }
+-  UpdateCursor();
++  // UpdateCursor();
+ }
+ 
+ void TouchEmulator::Disable() {
+@@ -137,211 +137,143 @@ gfx::SizeF TouchEmulator::InitCursorFromResource(
+   return gfx::ScaleSize(gfx::SizeF(cursor_image.Size()), 1.f / scale);
+ }
+ 
+-bool TouchEmulator::HandleMouseEvent(const WebMouseEvent& mouse_event) {
+-  if (!enabled())
+-    return false;
+-
+-  if (mouse_event.button == WebMouseEvent::ButtonRight &&
+-      mouse_event.type == WebInputEvent::MouseDown) {
+-    client_->ShowContextMenuAtPoint(gfx::Point(mouse_event.x, mouse_event.y));
+-  }
+-
+-  if (mouse_event.button != WebMouseEvent::ButtonLeft)
+-    return true;
+-
+-  if (mouse_event.type == WebInputEvent::MouseMove) {
+-    if (last_mouse_event_was_move_ &&
+-        mouse_event.timeStampSeconds < last_mouse_move_timestamp_ +
+-            kMouseMoveDropIntervalSeconds)
+-      return true;
+-
+-    last_mouse_event_was_move_ = true;
+-    last_mouse_move_timestamp_ = mouse_event.timeStampSeconds;
+-  } else {
+-    last_mouse_event_was_move_ = false;
+-  }
+-
+-  if (mouse_event.type == WebInputEvent::MouseDown)
+-    mouse_pressed_ = true;
+-  else if (mouse_event.type == WebInputEvent::MouseUp)
+-    mouse_pressed_ = false;
+-
+-  UpdateShiftPressed((mouse_event.modifiers & WebInputEvent::ShiftKey) != 0);
+-
+-  if (mouse_event.type != WebInputEvent::MouseDown &&
+-      mouse_event.type != WebInputEvent::MouseMove &&
+-      mouse_event.type != WebInputEvent::MouseUp) {
+-    return true;
+-  }
+-
+-  FillTouchEventAndPoint(mouse_event);
+-  HandleEmulatedTouchEvent(touch_event_);
+-
+-  // Do not pass mouse events to the renderer.
+-  return true;
+-}
+-
+-bool TouchEmulator::HandleMouseWheelEvent(const WebMouseWheelEvent& event) {
+-  if (!enabled())
+-    return false;
+-
+-  // Send mouse wheel for easy scrolling when there is no active touch.
+-  return emulated_stream_active_sequence_count_ > 0;
+-}
+-
+-bool TouchEmulator::HandleKeyboardEvent(const WebKeyboardEvent& event) {
+-  if (!enabled())
+-    return false;
+-
+-  if (!UpdateShiftPressed((event.modifiers & WebInputEvent::ShiftKey) != 0))
+-    return false;
+-
+-  if (!mouse_pressed_)
+-    return false;
+-
+-  // Note: The necessary pinch events will be lazily inserted by
+-  // |OnGestureEvent| depending on the state of |shift_pressed_|, using the
+-  // scroll stream as the event driver.
+-  if (shift_pressed_) {
+-    // TODO(dgozman): Add secondary touch point and set anchor.
+-  } else {
+-    // TODO(dgozman): Remove secondary touch point and anchor.
+-  }
+-
+-  // Never block keyboard events.
+-  return false;
+-}
+-
+-bool TouchEmulator::HandleTouchEvent(const blink::WebTouchEvent& event) {
+-  // Block native event when emulated touch stream is active.
+-  if (emulated_stream_active_sequence_count_)
+-    return true;
+-
+-  bool is_sequence_start = WebTouchEventTraits::IsTouchSequenceStart(event);
+-  // Do not allow middle-sequence event to pass through, if start was blocked.
+-  if (!native_stream_active_sequence_count_ && !is_sequence_start)
+-    return true;
+-
+-  if (is_sequence_start)
+-    native_stream_active_sequence_count_++;
+-  return false;
+-}
+-
+-void TouchEmulator::HandleEmulatedTouchEvent(blink::WebTouchEvent event) {
+-  DCHECK(gesture_provider_);
+-  event.uniqueTouchEventId = ui::GetNextTouchEventId();
+-  auto result = gesture_provider_->OnTouchEvent(MotionEventWeb(event));
+-  if (!result.succeeded)
+-    return;
+-
+-  const bool event_consumed = true;
+-  // Block emulated event when emulated native stream is active.
+-  if (native_stream_active_sequence_count_) {
+-    gesture_provider_->OnTouchEventAck(event.uniqueTouchEventId,
+-                                       event_consumed);
++void TouchEmulator::HandleTouchEvent(const blink::WebTouchEvent& event) {
++  if (!gesture_provider_)
+     return;
+-  }
+ 
+-  bool is_sequence_start = WebTouchEventTraits::IsTouchSequenceStart(event);
+-  // Do not allow middle-sequence event to pass through, if start was blocked.
+-  if (!emulated_stream_active_sequence_count_ && !is_sequence_start) {
+-    gesture_provider_->OnTouchEventAck(event.uniqueTouchEventId,
+-                                       event_consumed);
++  blink::WebTouchEvent event_ = event;
++  event_.uniqueTouchEventId = ui::GetNextTouchEventId();
++  auto result = gesture_provider_->OnTouchEvent(MotionEventWeb(event_));
++  if (!result.succeeded)
+     return;
+-  }
+ 
+-  if (is_sequence_start)
+-    emulated_stream_active_sequence_count_++;
++  event_.movedBeyondSlopRegion = result.moved_beyond_slop_region;
++  client_->ForwardEmulatedTouchEvent(event_, false);
++}
+ 
+-  event.movedBeyondSlopRegion = result.moved_beyond_slop_region;
+-  client_->ForwardEmulatedTouchEvent(event);
++void TouchEmulator::HandleEmulatedTouchEvent(blink::WebTouchEvent event) {
++  // DCHECK(gesture_provider_);
++  // event.uniqueTouchEventId = ui::GetNextTouchEventId();
++  // auto result = gesture_provider_->OnTouchEvent(MotionEventWeb(event));
++  // if (!result.succeeded)
++  //   return;
++
++  // const bool event_consumed = true;
++  // // Block emulated event when emulated native stream is active.
++  // if (native_stream_active_sequence_count_) {
++  //   gesture_provider_->OnTouchEventAck(event.uniqueTouchEventId,
++  //                                      event_consumed);
++  //   return;
++  // }
++
++  // bool is_sequence_start = WebTouchEventTraits::IsTouchSequenceStart(event);
++  // // Do not allow middle-sequence event to pass through, if start was blocked.
++  // if (!emulated_stream_active_sequence_count_ && !is_sequence_start) {
++  //   gesture_provider_->OnTouchEventAck(event.uniqueTouchEventId,
++  //                                      event_consumed);
++  //   return;
++  // }
++
++  // if (is_sequence_start)
++  //   emulated_stream_active_sequence_count_++;
++
++  // event.movedBeyondSlopRegion = result.moved_beyond_slop_region;
++  // client_->ForwardEmulatedTouchEvent(event, false);
+ }
+ 
+ bool TouchEmulator::HandleTouchEventAck(
+     const blink::WebTouchEvent& event, InputEventAckState ack_result) {
+-  bool is_sequence_end = WebTouchEventTraits::IsTouchSequenceEnd(event);
+-  if (emulated_stream_active_sequence_count_) {
+-    if (is_sequence_end)
+-      emulated_stream_active_sequence_count_--;
+-
+-    const bool event_consumed = ack_result == INPUT_EVENT_ACK_STATE_CONSUMED;
+-    if (gesture_provider_)
+-      gesture_provider_->OnTouchEventAck(event.uniqueTouchEventId,
+-                                         event_consumed);
+-    return true;
+-  }
+-
+-  // We may have not seen native touch sequence start (when created in the
+-  // middle of a sequence), so don't decrement sequence count below zero.
+-  if (is_sequence_end && native_stream_active_sequence_count_)
+-    native_stream_active_sequence_count_--;
+-  return false;
++  // bool is_sequence_end = WebTouchEventTraits::IsTouchSequenceEnd(event);
++  // if (emulated_stream_active_sequence_count_) {
++  //   if (is_sequence_end)
++  //     emulated_stream_active_sequence_count_--;
++
++  //   const bool event_consumed = ack_result == INPUT_EVENT_ACK_STATE_CONSUMED;
++  //   if (gesture_provider_)
++  //     gesture_provider_->OnTouchEventAck(event.uniqueTouchEventId,
++  //                                        event_consumed);
++  //   return true;
++  // }
++
++  // // We may have not seen native touch sequence start (when created in the
++  // // middle of a sequence), so don't decrement sequence count below zero.
++  // if (is_sequence_end && native_stream_active_sequence_count_)
++  //   native_stream_active_sequence_count_--;
++  // return false;
++
++  const bool event_consumed = ack_result == INPUT_EVENT_ACK_STATE_CONSUMED;
++  if (gesture_provider_)
++    gesture_provider_->OnTouchEventAck(event.uniqueTouchEventId,
++                                       event_consumed);
++  return true;
+ }
+ 
+ void TouchEmulator::OnGestureEvent(const ui::GestureEventData& gesture) {
+   WebGestureEvent gesture_event =
+       ui::CreateWebGestureEventFromGestureEventData(gesture);
+ 
+-  switch (gesture_event.type) {
+-    case WebInputEvent::Undefined:
+-      NOTREACHED() << "Undefined WebInputEvent type";
+-      // Bail without sending the junk event to the client.
+-      return;
+-
+-    case WebInputEvent::GestureScrollBegin:
+-      client_->ForwardEmulatedGestureEvent(gesture_event);
+-      // PinchBegin must always follow ScrollBegin.
+-      if (InPinchGestureMode())
+-        PinchBegin(gesture_event);
+-      break;
+-
+-    case WebInputEvent::GestureScrollUpdate:
+-      if (InPinchGestureMode()) {
+-        // Convert scrolls to pinches while shift is pressed.
+-        if (!pinch_gesture_active_)
+-          PinchBegin(gesture_event);
+-        else
+-          PinchUpdate(gesture_event);
+-      } else {
+-        // Pass scroll update further. If shift was released, end the pinch.
+-        if (pinch_gesture_active_)
+-          PinchEnd(gesture_event);
+-        client_->ForwardEmulatedGestureEvent(gesture_event);
+-      }
+-      break;
+-
+-    case WebInputEvent::GestureScrollEnd:
+-      // PinchEnd must precede ScrollEnd.
+-      if (pinch_gesture_active_)
+-        PinchEnd(gesture_event);
+-      client_->ForwardEmulatedGestureEvent(gesture_event);
+-      break;
+-
+-    case WebInputEvent::GestureFlingStart:
+-      // PinchEnd must precede FlingStart.
+-      if (pinch_gesture_active_)
+-        PinchEnd(gesture_event);
+-      if (InPinchGestureMode()) {
+-        // No fling in pinch mode. Forward scroll end instead of fling start.
+-        suppress_next_fling_cancel_ = true;
+-        ScrollEnd(gesture_event);
+-      } else {
+-        suppress_next_fling_cancel_ = false;
+-        client_->ForwardEmulatedGestureEvent(gesture_event);
+-      }
+-      break;
+-
+-    case WebInputEvent::GestureFlingCancel:
+-      // If fling start was suppressed, we should not send fling cancel either.
+-      if (!suppress_next_fling_cancel_)
+-        client_->ForwardEmulatedGestureEvent(gesture_event);
+-      suppress_next_fling_cancel_ = false;
+-      break;
+-
+-    default:
+-      // Everything else goes through.
+-      client_->ForwardEmulatedGestureEvent(gesture_event);
+-  }
++  client_->ForwardEmulatedGestureEvent(gesture_event);
++
++  // switch (gesture_event.type) {
++  //   case WebInputEvent::Undefined:
++  //     NOTREACHED() << "Undefined WebInputEvent type";
++  //     // Bail without sending the junk event to the client.
++  //     return;
++
++  //   case WebInputEvent::GestureScrollBegin:
++  //     client_->ForwardEmulatedGestureEvent(gesture_event);
++  //     // PinchBegin must always follow ScrollBegin.
++  //     if (InPinchGestureMode())
++  //       PinchBegin(gesture_event);
++  //     break;
++
++  //   case WebInputEvent::GestureScrollUpdate:
++  //     if (InPinchGestureMode()) {
++  //       // Convert scrolls to pinches while shift is pressed.
++  //       if (!pinch_gesture_active_)
++  //         PinchBegin(gesture_event);
++  //       else
++  //         PinchUpdate(gesture_event);
++  //     } else {
++  //       // Pass scroll update further. If shift was released, end the pinch.
++  //       if (pinch_gesture_active_)
++  //         PinchEnd(gesture_event);
++  //       client_->ForwardEmulatedGestureEvent(gesture_event);
++  //     }
++  //     break;
++
++  //   case WebInputEvent::GestureScrollEnd:
++  //     // PinchEnd must precede ScrollEnd.
++  //     if (pinch_gesture_active_)
++  //       PinchEnd(gesture_event);
++  //     client_->ForwardEmulatedGestureEvent(gesture_event);
++  //     break;
++
++  //   case WebInputEvent::GestureFlingStart:
++  //     // PinchEnd must precede FlingStart.
++  //     if (pinch_gesture_active_)
++  //       PinchEnd(gesture_event);
++  //     if (InPinchGestureMode()) {
++  //       // No fling in pinch mode. Forward scroll end instead of fling start.
++  //       suppress_next_fling_cancel_ = true;
++  //       ScrollEnd(gesture_event);
++  //     } else {
++  //       suppress_next_fling_cancel_ = false;
++  //       client_->ForwardEmulatedGestureEvent(gesture_event);
++  //     }
++  //     break;
++
++  //   case WebInputEvent::GestureFlingCancel:
++  //     // If fling start was suppressed, we should not send fling cancel either.
++  //     if (!suppress_next_fling_cancel_)
++  //       client_->ForwardEmulatedGestureEvent(gesture_event);
++  //     suppress_next_fling_cancel_ = false;
++  //     break;
++
++  //   default:
++  //     // Everything else goes through.
++  //     client_->ForwardEmulatedGestureEvent(gesture_event);
++  // }
+ }
+ 
+ void TouchEmulator::CancelTouch() {
+
+diff --git a/content/browser/renderer_host/input/touch_emulator_client.h b/content/browser/renderer_host/input/touch_emulator_client.h
+index 89ce509..85c8614 100644
+--- a/content/browser/renderer_host/input/touch_emulator_client.h
++++ b/content/browser/renderer_host/input/touch_emulator_client.h
+@@ -17,8 +17,10 @@ class CONTENT_EXPORT TouchEmulatorClient {
+   virtual ~TouchEmulatorClient() {}
+ 
+   virtual void ForwardEmulatedGestureEvent(
+-      const blink::WebGestureEvent& event) = 0;
+-  virtual void ForwardEmulatedTouchEvent(const blink::WebTouchEvent& event) = 0;
++    const blink::WebGestureEvent& event) = 0;
++  virtual void ForwardEmulatedTouchEvent(
++    const blink::WebTouchEvent& event,
++    bool send_input) = 0;
+   virtual void SetCursor(const WebCursor& cursor) = 0;
+   virtual void ShowContextMenuAtPoint(const gfx::Point& point) = 0;
+ };
