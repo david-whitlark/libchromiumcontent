@@ -2,6 +2,8 @@
 *.swp
 *.pyc
 /dist/
+/ia32dist/
+/x64dist/
 /src/
 /libchromiumcontent.zip
 /libchromiumcontent-static.zip
